@@ -7,22 +7,43 @@ class RedisClient extends CacheClient {
         this.options = options;
     }
     init() {
-
+        // not implemented
     }
     start() {
         return new Promise((resolve, reject) => {
+            let proceeded = false;
+            const proceed = result => {
+                if (!proceeded) {
+                    proceeded = true;
+                    return result && result instanceof Error ? reject(result) : resolve(result);
+                } else if (result instanceof Error) {
+                    this.emit('error', result);
+                }
+            };
             const retryStrategy = this.options.retry_strategy;
             this.options.retry_strategy = options => {
-
+                let result;
+                if (typeof retryStrategy === 'function') {
+                    result = retryStrategy(options);
+                    if (typeof result === 'number') {
+                        return result;
+                    }
+                }
+                if (result instanceof Error) {
+                    proceed(result);
+                } else if (options.error) {
+                    proceed(options.error);
+                } else {
+                    proceed(new Error('redis cache client failed to reconnect!'));
+                }
+                return result;
             };
             this.client = redis.createClient(this.options);
-            this.client.on('ready', () => {
-                return resolve();
-            });
+            this.client.on('ready', proceed);
         });
     }
     ready() {
-
+        // not implemented
     }
     get({key}) {
         return new Promise((resolve, reject) => {
@@ -45,8 +66,11 @@ class RedisClient extends CacheClient {
             });
         });
     }
-    stop() {
-        this.client && this.client.quit();
+    stop(flush) {
+        if (this.client) {
+            this.client.end(flush); // maybe this.client.quit();
+            this.client.unref();
+        }
     }
 };
 

@@ -17,9 +17,9 @@ module.exports = (params = {}) => {
             Object.assign(this.errors, errorsFactory(this.bus.errors));
         }
 
-        async init(params) {
+        init(...params) {
             if (!this.config.client || typeof this.config.client.type !== 'string') {
-                throw this.errors['cache.client.notProvided']();
+                throw this.errors['cache.client.notProvided']({config: this.config});
             }
             let Client;
             switch (this.config.client.type) {
@@ -27,23 +27,29 @@ module.exports = (params = {}) => {
                     Client = require('./client/redis');
                     break;
                 default:
-                    throw this.errors['cache.client.notSupported']({params: {client: this.config.client.type}});
+                    throw this.errors['cache.client.notSupported']({
+                        params: {
+                            client: this.config.client.type
+                        }
+                    });
             }
             try {
                 this.client = new Client(this.config.client.config);
             } catch (e) {
-                throw this.errors['cache.client.initError']({
+                throw this.errors['cache.client']({
                     cause: e,
                     params: {
                         client: this.config.client.type
                     }
                 });
             }
+            this.client.on('error', e => {
+                this.log.error && this.log.error(e);
+            });
             this.bus.registerLocal(this.client.publicApi, this.config.id);
-            await this.client.init();
-            return await super.init(params);
+            return this.triggerLifecycleEvent('init', params);
         }
-        async start(params) {
+        start(...params) {
             this.bus.importMethods(this.config, [this.config.id], {request: true, response: true}, this);
             this.pull((msg = {}, $meta = {}) => {
                 const method = $meta.method;
@@ -55,21 +61,32 @@ module.exports = (params = {}) => {
                 }
                 return this.config[method](msg, $meta)
                     .catch(e => {
-                        throw this.errors[method](e);
+                        throw this.errors[`cache.${method.pop()}`](e);
                     });
             });
-            await this.client.start();
-            return await super.start(params);
+            return this.triggerLifecycleEvent('start', params);
         }
 
-        async ready(params) {
-            await this.client.ready();
-            return super.ready(params);
+        ready(...params) {
+            return this.triggerLifecycleEvent('ready', params);
         }
 
-        async stop(params) {
-            await this.client.stop();
-            return super.stop(params);
+        stop(...params) {
+            return this.triggerLifecycleEvent('stop', params);
+        }
+
+        async triggerLifecycleEvent(event, params) {
+            try {
+                await this.client[event]();
+            } catch (e) {
+                throw this.errors[`cache.client.${event}`]({
+                    cause: e,
+                    params: {
+                        client: this.config.client.type
+                    }
+                });
+            }
+            return super[event](...params);
         }
     }
     return UtPortCache;
