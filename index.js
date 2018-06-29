@@ -6,16 +6,23 @@ module.exports = (params = {}) => {
     class UtPortCache extends Port {
         constructor(params = {}) {
             super(params);
-            this.config = this.merge({
-                id: 'cache',
-                type: 'cache',
-                logLevel: 'debug',
-                client: {// catbox extension
-                    engine: null, // catbox engine
-                    options: {} // catbox engine options
+            this.config = this.merge(
+                // default
+                {
+                    id: 'cache',
+                    logLevel: 'debug',
+                    client: {// catbox extension
+                        engine: null, // catbox engine
+                        options: {} // catbox engine options
+                    },
+                    policy: [/* {options, segment}, {options, segment} */] // array of catbox policies
                 },
-                policy: [/* {options, segment}, {options, segment} */] // array of catbox policies
-            }, params.config);
+                // custom
+                params.config,
+                // immutable
+                {
+                    type: 'cache'
+                });
             Object.assign(this.errors, errorsFactory(this.bus.errors));
         }
 
@@ -27,9 +34,9 @@ module.exports = (params = {}) => {
         async start(...params) {
             await this.client.start();
             const methods = {
-                get: ({key}) => this.client.get(key),
-                set: ({key, value, ttl = 0}) => this.client.set(key, value, ttl),
-                drop: ({key}) => this.client.drop(key)
+                get: ({id, segment}) => this.client.get({id, segment}),
+                set: ({id, segment, value, ttl = 0}) => this.client.set({id, segment}, value, ttl),
+                drop: ({id, segment}) => this.client.drop({id, segment})
             };
             if (Array.isArray(this.config.policy)) {
                 this.config.policy.forEach(policyConfig => {
